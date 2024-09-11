@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TikTok Live Events</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #010101;
+            color: #ffffff;
+            margin: 0;
+            padding: 20px;
+        }
+        h1 {
+            color: #fe2c55;
+            text-align: center;
+        }
+        form {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+        input[type="text"] {
+            padding: 10px;
+            font-size: 16px;
+            border: none;
+            border-radius: 2px;
+            margin-right: 10px;
+        }
+        button {
+            background-color: #fe2c55;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            border-radius: 2px;
+        }
+        #connectionStatus {
+            text-align: center;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+        #eventList {
+            max-width: 600px;
+            margin: 0 auto;
+            list-style-type: none;
+            padding: 0;
+        }
+        .event-item {
+            display: flex;
+            background-color: #1d1d1d;
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            opacity: 0;
+            transform: translateY(20px);
+            transition: opacity 0.3s, transform 0.3s;
+            
+        }
+        .event-item.active {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        .profile-picture {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            margin-right: 15px;
+            object-fit: cover;
+            box-shadow: 0px 0px 20px rgba(255, 255, 255, 0.8);
+        }
+        .event-content {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+        .username {
+            font-weight: bold;
+            color: #69c9d0;
+            margin-bottom: 5px;
+            font-size: 1.5em; /* Aumentando o tamanho da fonte */
+        }
+        .emoji {
+            font-size: 1.6em; /* Tamanho do emoji um pouco maior que o nome */
+            vertical-align: middle; /* Alinha o emoji verticalmente com o texto */
+        }
+        .event-type {
+            font-size: 1.2em;
+            color: #a7a7a7;
+        }
+    </style>
+</head>
+<body>
+    <h1>TikTok Live Events</h1>
+    
+    <form action="/connect" method="POST">
+        <input type="text" name="username" placeholder="Digite o username do TikTok" required>
+        <button type="submit">Conectar à Live</button>
+    </form>
+
+    <div id="connectionStatus"></div>
+    <ul id="eventList"></ul>
+
+    <div id="user-list">
+        <!-- Lista de usuários aqui -->
+    </div>
+
+    <div id="gift-sender" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 1000; background-color: rgba(0, 0, 0, 0.8); padding: 20px; border-radius: 10px; text-align: center;">
+        <img id="sender-photo" src="" alt="Gift Sender" style="width: 300px; height: 300px;  border-radius: 50%; margin-bottom: 10px;">
+        <div id="sender-name" style="font-size: 24px; color: #fe2c55; font-weight: bold;"></div>
+        <div id="gift-info" style="font-size: 18px; color: #ffffff;"></div>
+    </div>
+
+    <script>
+        const socket = io();
+        const eventList = document.getElementById('eventList');
+        const connectionStatus = document.getElementById('connectionStatus');
+        const MAX_EVENTS = 7;
+
+        // Lista de emojis
+        const emojis = [
+            '😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣', '😊', '😇',
+            '🙂', '🙃', '😉', '😌', '😍', '🥰', '😘', '😗', '😙', '😚',
+            '😋', '😛', '😝', '😜', '🤪', '🤨', '🧐', '🤓', '😎', '🤩',
+            '🥳', '😏', '😒', '😞', '😔', '😟', '😕', '🙁', '☹️', '😣',
+            '😖', '😫', '😩', '🥺', '😢', '😭', '😤', '😠', '😡', '🤬',
+            '🤯', '😳', '🥵', '🥶', '😱', '😨', '😰', '😥', '😓', '🤗',
+            '🤔', '🤭', '🤫', '🤥', '😶', '😐', '😑', '😬', '🙄', '😯',
+            '😦', '😧', '😮', '😲', '🥱', '😴', '🤤', '😪', '😵', '🤐',
+            '🥴', '🤢', '🤮', '🤧', '😷', '🤒', '🤕', '🤑', '🤠', '😈',
+            '👿', '👹', '👺', '🤡', '💩', '👻', '💀', '☠️', '👽', '👾'
+        ];
+
+        // Função para selecionar um emoji aleatório
+        function getRandomEmoji() {
+            return emojis[Math.floor(Math.random() * emojis.length)];
+        }
+
+        function addEvent(event) {
+            const li = document.createElement('li');
+            li.className = 'event-item';
+            
+            const img = document.createElement('img');
+            img.src = event.profilePicture || 'https://via.placeholder.com/50';
+            img.alt = `${event.user} profile picture`;
+            img.className = 'profile-picture';
+            
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'event-content';
+
+            const usernameDiv = document.createElement('div');
+            usernameDiv.className = 'username';
+            const emoji = document.createElement('span');
+            emoji.className = 'emoji';
+            emoji.textContent = getRandomEmoji();
+            usernameDiv.textContent = `${event.user} `;
+            usernameDiv.appendChild(emoji);
+
+            const eventTypeDiv = document.createElement('div');
+            eventTypeDiv.className = 'event-type';
+
+            let content = '';
+            if (event.type === 'comment') {
+                content = `comentou: ${event.content}`;
+            } else if (event.type === 'gift') {
+                content = `enviou um presente: ${event.content}`;
+            } else if (event.type === 'like') {
+                content = 'curtiu a live';
+            }
+            eventTypeDiv.textContent = content;
+
+            contentDiv.appendChild(usernameDiv);
+            contentDiv.appendChild(eventTypeDiv);
+            
+            li.appendChild(img);
+            li.appendChild(contentDiv);
+            
+            eventList.insertBefore(li, eventList.firstChild);
+            setTimeout(() => li.classList.add('active'), 50);
+
+            // Remove oldest event if we have more than MAX_EVENTS
+            if (eventList.children.length > MAX_EVENTS) {
+                const oldestEvent = eventList.lastElementChild;
+                oldestEvent.classList.remove('active');
+                setTimeout(() => {
+                    oldestEvent.remove();
+                }, 300);
+            }
+        }
+
+        socket.on('initialEvents', (events) => {
+            // Only display the most recent MAX_EVENTS
+            events.slice(-MAX_EVENTS).reverse().forEach(addEvent);
+        });
+
+        socket.on('newEvent', (event) => {
+            addEvent(event);
+            if (event.type === 'gift') {
+                showGiftSender(event);
+            }
+        });
+
+        socket.on('streamEnd', () => {
+            const li = document.createElement('li');
+            li.className = 'event-item';
+            li.textContent = 'A live terminou';
+            eventList.insertBefore(li, eventList.firstChild);
+            setTimeout(() => li.classList.add('active'), 50);
+        });
+
+        socket.on('clearEvents', () => {
+            eventList.innerHTML = '';
+        });
+
+        socket.on('connectionStatus', (status) => {
+            if (status.connected) {
+                connectionStatus.textContent = `Conectado à live de ${status.username}`;
+                connectionStatus.style.color = '#69c9d0';
+            } else {
+                connectionStatus.textContent = status.error || 'Não conectado';
+                connectionStatus.style.color = '#fe2c55';
+            }
+        });
+
+        function showGiftSender(data) {
+            const giftSenderElement = document.getElementById('gift-sender');
+            const photoElement = document.getElementById('sender-photo');
+            const nameElement = document.getElementById('sender-name');
+            const giftInfoElement = document.getElementById('gift-info');
+            
+            photoElement.src = data.profilePicture || 'https://via.placeholder.com/200';
+            nameElement.textContent = data.user;
+            giftInfoElement.textContent = `Enviou um presente: ${data.content}`;
+            
+            giftSenderElement.style.display = 'block';
+            setTimeout(() => {
+                giftSenderElement.style.display = 'none';
+            }, 5000);
+        }
+
+        // Remove or comment out the following function and its socket listener:
+        // function showGiftSenderPhoto(photoUrl) { ... }
+        // socket.on('gift-sent', (data) => { ... });
+    </script>
+</body>
+</html>
